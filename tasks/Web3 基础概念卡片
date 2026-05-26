@@ -1,0 +1,44 @@
+1. Account 帳戶
+鏈上能 hold state 的單位 — balance / nonce / code / storage 四件事,用 address 索引
+我某個 address 上面 0.5 ETH + nonce=12,這組 (address, state) 就是一個 account
+account 跟 wallet 別混 — account 在鏈上,wallet 只是我手邊操作的工具
+2. Address 地址
+20 bytes 識別碼。EOA 是 pubkey hash 截尾 12 bytes,合約是 deployer + nonce hash 出來(或 CREATE2 算)
+0x742d35Cc...44e 純看 hex 看不出 EOA 還是合約 — 要 eth_getCode,回 0x 就是 EOA
+同個 address 跨鏈是不同 account(state 各自獨立),但 EOA 跨 EVM chain 同一個地址。所以 mainnet / testnet EOA 是同地址 — 別把 mainnet seed 亂丟到測試環境用
+3. Wallet 錢包
+管理 private key 的軟體 / 硬體,不是 account 本身
+MetaMask、Rabby、Ledger 都是 wallet。本地存 key、簽完 tx 丟 RPC
+「我錢包裡有 ETH」這話講錯了 — ETH 在鏈上,wallet 只是握「能 prove ownership」的 key。Wallet 砸了 ETH 沒少,seed 還在就能還原
+4. Seed phrase 助記詞
+BIP-39 mnemonic,12 / 24 個英文字 = entropy。整個 HD wallet 所有 key 都從它 derive
+witch collapse practice feed shame open ... → seed → derive m/44'/60'/0'/0/0 是第一個 ETH account
+Seed 漏 = 從它 derive 的所有 accounts 全失守,而且不能 revoke,沒有「改密碼」這回事。別截圖 別雲端 別給任何網站 — 只在硬體錢包或紙上
+5. Private key 私鑰
+secp256k1 曲線上一個 256-bit scalar。對任意訊息簽得出有效 signature = 控制對應 address
+0x4c08...62318,64 個 hex char
+任何要你貼 raw private key 的網站 / 工具 — 釣魚。合法 dapp 只透過 wallet signing flow,不會碰 raw key
+6. Signature 簽章
+private key 對訊息 hash 跑 ECDSA → (r, s, v)。驗證方 ecrecover 反推 address,不暴露 key
+MetaMask 簽一段訊息 → 拿到 65 bytes hex → 丟 ecrecover 還原我的 address
+盲簽是核災。EIP-712 typed data 看起來像授權某個結構化資料,但 dapp 可以把它構造成「approve unlimited USDC 給攻擊者」。Wallet 顯示看不懂 — 不簽。AIP 在做的事就是這層 — 確保 intent 跟執行不脫鉤,但前提是你先讓自己看得懂在簽什麼
+7. Transaction 交易
+被 private key 簽過、要求 state transition 的訊息。進 mempool → 進 block → 改鏈上 state
+送 1 ETH:{from, to, value: 1e18, nonce: 5, gasLimit: 21000, maxFeePerGas: 30 gwei, ...} + sig
+簽 ≠ 上鏈,上鏈 ≠ final。mempool 可能被 replace / drop;上鏈可能被 reorg(L1 機率低,L2 看 finality 怎麼設計)。等幾個 confirmations 算 final — 看 chain
+8. Gas
+跑 EVM opcode 的計量單位。「跑多少 unit」跟「我願意付多少錢 per unit」(gas price)是兩件事
+純 ETH transfer = 21000 gas。EIP-1559 我付 gasUsed × (baseFee + priorityFee) — baseFee 燒掉,priorityFee 給 validator
+gas limit 設太低 → revert 但 gas 照扣(out of gas)。gas price 太低 → 卡 mempool 沒人打包,不會自動退錢 — 要 replace(同 nonce 高 fee 蓋過去)或等它過期
+9. Smart contract 智能合約
+部署在某 address 的 EVM bytecode。被 CALL / DELEGATECALL / STATICCALL 觸發時跑,可讀寫自己 storage
+USDC 0xA0b8...eB48 — 跟它 interact 是呼叫它 transfer(to, amount),不是直接 send ETH 過去
+「合約 deploy 就不能改」對也不對 — 原 bytecode 不可改,但很多合約用 proxy(EIP-1967、UUPS),admin 能換 implementation。Approve 一個 proxy = 信任它現在和未來所有 implementation。這也是為什麼 unlimited approve 是個坑
+10. Testnet 測試網
+跟 mainnet 共享協議 / EVM、token 沒經濟價值的獨立鏈,給開發 / 測試用
+Sepolia 是現在 ETH 主流 testnet。Sepolia ETH 從 faucet 領,免費,只在 Sepolia 認。我自己這條線常用的是 Monad testnet (Chain ID 10143),AIP 部署在上面
+testnet 跟 mainnet state 完全獨立(testnet 部署的合約不會出現在 mainnet),但 EOA address 跨鏈同一個。最危險的事:用 mainnet 主 seed 接不熟的 testnet,被惡意 dapp 騙簽 EIP-712 — 那個 signature replay 到 mainnet 對應合約,mainnet 資產一樣丟。測試開獨立 EOA 用
+11. Block explorer 區塊瀏覽器
+node RPC 的唯讀 UI。把 tx / address / block / event log 解析成人類看得懂的東西
+Etherscan 看一個 tx — status、gas used、emit 的 events、internal calls trace、decoded function call 都拿得到
+explorer 顯示的「Token Balance」是它自己 index ERC-20 Transfer event 算出來的 — 不保證即時 / 不保證準(新鏈 / indexer bug 都會偏)。重大判斷拿 RPC 直接 balanceOf 確認,別只信 UI
