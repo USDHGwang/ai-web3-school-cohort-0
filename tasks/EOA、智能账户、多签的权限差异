@@ -1,0 +1,8 @@
+EOA:externally owned,一把 private key 一個 address。授權邏輯硬編碼「擁有 key 就能簽」,改不了
+Smart account:合約即帳戶。授權邏輯可程式化(ERC-4337 / ERC-7579 是現在標準化方向)
+Multisig:smart account 的子類 — N-of-M 簽核才能 execute
+例子:
+EOA → MetaMask 預設帳戶
+Smart account → Safe{Wallet}、Argent、Coinbase Smart Wallet
+Multisig → Gnosis Safe 設 2-of-3,要兩個 owner 簽才走
+Smart account ≠ 萬靈丹。它把「key 保管風險」轉成「合約授權邏輯 + governance 風險」 — 授權 module 寫錯、admin 被攻陷、升級邏輯有漏洞,一樣丟資產。EOA 風險集中在 key,smart account 風險擴散到 code + governance — 換一組 attack surface,不是消除。這也是 AIP 在補的點之一:smart account 把授權交給合約後,執行階段沒人 enforce intent 完整性,就要靠 hook 補(ERC-7579 hook + EIP-1153 transient storage,pre/postCheck 包夾)
