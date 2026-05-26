@@ -1,0 +1,40 @@
+1. LLM（Large Language Model）
+一句話：用海量文本訓練出來的「下一個 token 預測器」，本質是統計引擎不是邏輯引擎。
+我的經歷：今天讓 sub-agent 幫我寫 concept note，它把 trigger: 欄位的內容塞進 source-session:（欄位名合規，但語意完全錯）。Model 並沒有真的「理解」operating guide 的精神，只是擬合「看起來合規的 frontmatter 長什麼樣」。
+誤區/邊界：以為 LLM「會理解我的意圖」。它沒有理解，只有對「理解長什麼樣」的擬合。所以我每次讓 agent 寫進 vault 都得 review——不是因為它笨，是因為它的 fail 模式是 silent。
+2. Prompt
+一句話：給 LLM 的輸入文字，本質是「條件分布的引子」，不是「指令」。
+我的經歷：同一個需求「memory 我想討論一下」，我寫成「幫我整理」會得到列表式 summary，寫成「對我 layer 2/3 邊界做 sparring，push back 我的假設」會得到批判性框架。差異不在模型，在 prompt 引導的分布。
+誤區/邊界：以為「我講清楚就好」。我寫 spawn_task brief 時必須一字一句精確（sub-agent 沒 context），跟主 agent 對話可以模糊（有 context 補位）——同樣是 prompt，兩種情境的精度要求差一個量級。
+3. Context Window
+一句話：LLM 一次推理能「看到」的 token 上限，超出就截斷或滑動。
+我的經歷：這個 session 我跨了多個主題（memory 三層 framing、vault deprecation、frontmatter 修正、學院作業），context 越疊越長。我選 spawn_task 而不是 background Agent 來做學院 filing——就是有意識保護當前 context 不被歸檔噪音污染。
+誤區/邊界：以為「context 越大越好」。lost in the middle 是真的——session 後期我會發現 agent 漏掉早期 context 的細節（例如 trigger 欄位原本的設計意圖）。選擇塞什麼進 context 比「能塞多少」更關鍵。
+4. Tool Use
+一句話：讓 LLM 不只「說話」，還能呼叫外部函數來真正改變世界。
+我的經歷：Claude 在這 session 呼叫過 Edit、Read、Write、Bash、mcp__ccd_session__spawn_task——每個都是 tool。沒有 tool use，AI 永遠只能「給建議」，無法真的修我 vault 或 spawn 獨立 session。
+誤區/邊界：以為「tool use = function calling」。Function calling 是底層機制；真正會出錯的是 selection（選錯工具）跟 interpretation（看不懂回傳）。今天 sub-agent 沒選錯 Write、沒填錯參數，但「選擇 source-session 欄位來容納 trigger 描述」這個 selection-level 判斷錯了——錯不在 tool 本身。
+5. Agent
+一句話：LLM + tools + 「持續決策直到 task 完成」的 loop。
+我的經歷：Claude Code 是我每天用的 agent。我正在規劃的 Hermes 也是 agent，專門負責 memory layer 之間同步。我規劃的 Harness 是 agent 系統的 framework。今天 sub-agent 做學院 filing，自主決定 read 哪些檔、怎麼 resolve frontmatter 衝突、寫去哪——這就是 agent autonomy 在運作。
+誤區/邊界：把 agent 當「更聰明的 chatbot」。它的核心是 autonomy 邊界。我今天踩的坑就是 autonomy 給太多——agent 自主把 trigger: 改成 source-session:，我沒當下審批就被寫進去。下次給 sub-agent brief 必須加一條：碰到 schema 衝突請 surface，不要自己 resolve。
+6. Workflow
+一句話：把多個 agent / tool call / 人類決策用明確順序串起來的 task 流程。
+我的經歷：我的「vault concept note 寫入」workflow = [我提需求] → [Claude 草稿] → [我 review] → [spawn task] → [sub-agent 寫] → [我 check chip] → [我手動 commit]。每步分支明確。我設計但還沒部署的 22:30 Cron daily report 是另一個 workflow——固定時間、固定 prompt、固定輸出格式。
+誤區/邊界：把「workflow vs agent」當對立。workflow 是 agent 的一種 control flow——agent 是 dynamic，workflow 是 static。我實際 stack 是混用：vault 操作是 workflow 框架，每個 node 內部讓 Claude agent 自由發揮。
+7. AI Coding
+一句話：LLM 在「寫程式」垂直領域的應用，特徵是強耦合 tool use + 高 stake 副作用。
+我的經歷：我每天用 Claude Code 而不是 Copilot 或 Cursor。差別在 autonomy 梯度——Copilot 是 inline 建議（HITL 重），Cursor 是 chat + edit，Claude Code 能自主跑 git、改檔、spawn sub-agent。我做 AIP / Harness / vault 維護全部靠它。
+誤區/邊界：以為「AI coding = 會幫你寫 code 的工具」。我實際用法不是「請寫 X」，是「請探索 Y 問題、push back 我假設、再實作」——讓 AI 處理 codebase navigation、跨檔 refactor、debug hypothesis 這些我成本最高的部分。程式碼本身反而是 by-product。
+8. Guardrails
+一句話：限制 agent 行為邊界的機制，可以是 prompt-level、code-level、或外部 reviewer。
+我的經歷：我的 vault operating guide 是 prompt-level guardrail（「frontmatter 只能用這 5 個欄位」）。今天 sub-agent 照字面遵守（沒加多餘欄位）但違反精神（把錯誤型別資料塞進合規欄位）。我的 meta/reflections/ 「永不寫」是另一層 guardrail（更嚴格的全域禁止）。
+誤區/邊界：以為 prompt guardrail = 安全。今天的教訓：prompt 是建議不是保證。真正的安全層必須 code-level（runtime 攔截）——將來 Hermes 應該有「source-session 必須是 session ID 格式」的硬性驗證，prompt 不夠。
+9. Human-in-the-loop（HITL）
+一句話：在 agent 決策流程中保留人類審批點。
+我的經歷：我刻意選 spawn_task（要點 chip）而不是 background Agent（自動回流）——就是要強化 HITL 介入點。但同一個 session 也暴露另一面：我承認「幾乎不看 inbox/concepts/」，代表現有 HITL gate（inbox → concepts promotion）已經是 theatre，沒人真的在審批。
+誤區/邊界：把 HITL 當「半自動化、未來會被取代」。HITL 是設計選擇不是過渡狀態。問題不是「要不要 HITL」，是「閾值設多高」。我自己 inbox 的例子說明：閾值設太高（每筆要 review）= 我直接跳過所有 review，反而失去整條 trust chain。
+10. Tracing
+一句話：把 agent 每一步的 input/output/decision 完整記錄，給人類事後 debug 或審計。
+我的經歷：Claude Code 的 transcript 是 tracing（我能回看每個 tool call + decision）。我 vault frontmatter 的 source-session: 欄位也是 tracing metadata——本意讓未來回溯這個 concept 從哪場對話來。今天它被亂塞文字就破壞了 tracing 完整性。
+誤區/邊界：以為 tracing 只為 debug。在 production 有三用途：debug、cost monitoring、alignment audit。我建 Harness / Hermes 必須先想 tracing 設計——沒 tracing 的 agent 等於沒 unit test 的 code，無法 ship。
