@@ -1,0 +1,57 @@
+# Week 2 Module A — AI × Web3 問題地圖
+
+## 一、問題地圖
+
+```mermaid
+flowchart LR
+    A[AI × Web3 交集] --> B[Payment / Commerce / Settlement]
+    A --> C[Identity / Reputation / Capability]
+    A --> D[Wallet / Permission / Safe Execution]
+    A --> E[Privacy / Security / Sovereignty]
+    A --> F[Dev Tooling / Agent Workflow]
+    A --> G[Governance / Coordination / Public Goods]
+
+    D -.延伸主線.-> E
+二、六個方向 — AI 角色 vs Web3 機制
+方向	AI 角色	Web3 機制	為什麼需要交集
+Payment / Commerce / Settlement	Agent 自主下單、定價、議價、結算	Stablecoin、鏈上 atomic settlement、programmable money、agent-to-agent payment protocol(x402 等)	Agent 之間需要 micro-tx + 無人工 trust 結算,法幣 rails 對接成本太高
+Identity / Reputation / Capability	Agent 累積行為歷史、capability profile、reputation 證明	DID、SBT、ERC-8004 trustless agent、verifiable credentials、on-chain attestation	Agent 跨平台需要可驗證身份;純 AI 的 model card 不 portable,純 SBT 不表達 capability
+Wallet / Permission / Safe Execution	Agent 拿 user 授權自主執行交易,需要邊界控制	ERC-4337 account abstraction、ERC-7579 modular smart account、session keys、spending limits、intent integrity hooks	Agent 的不確定性 + speed 讓 EOA / static permission 兩端都失效
+Privacy / Security / Sovereignty	Agent 處理 user 數據、生成可 fingerprint 的行為 pattern	ZK proof、FHE、TEE、encrypted mempool、stealth address、commit-reveal	Agent intent / 執行 / 行為都會被觀察,純 chain privacy 跟純 AI privacy 都只解半個
+Dev Tooling / Agent Workflow	Agent 寫 / 部署 / 測試 / 監控合約,自動 codegen + sim + fix	Foundry、Hardhat、fork mainnet、on-chain monitoring、oracle integration	純 AI codegen 對 EVM gas / oracle / MEV 沒 grounding;純 Web3 dev tool 沒有 agent autonomy
+Governance / Coordination / Public Goods	Agent 摘要提案、模擬投票結果、撮合協作、預測 outcomes	DAO 投票合約、quadratic funding、token-curated registry	純 AI 分析無公開可驗證紀錄,純 DAO 投票成本高,agent assist 降參與門檻但需 verifiable 才能被信任
+三、兩條 deep dive — 不是純 AI 也不是純 Web3
+1. Wallet / Permission / Safe Execution
+為什麼不是純 AI 問題:
+
+AI 在 sandbox 裡 hallucinate 不會死人,在 mempool 裡 hallucinate 用戶資產可能被搬空
+LLM alignment / red team / system prompt 解決不了「我有 user 授權,但這條 tx 是不是我該執行的」這個問題 —— 驗證必須在執行的系統(EVM)上發生,不是 agent 自己審自己
+RLHF / safety tuning 能降低 misbehavior 機率,但無法給 cryptographic guarantee
+→ 純 AI 解法的天花板是「機率上對」,Web3 場景需要「驗證上對」
+為什麼不是純 Web3 問題:
+
+沒有 agent 之前根本沒這個 gap —— 傳統 EOA 由用戶 sign,trust model 簡單
+ERC-4337 / 7579 的真正應用爆發點是 agent,因為 agent 的非確定性、speed、scope 跟人類用戶不一樣
+純 Web3 視角的解法(static permission / role-based access)用在 agent 上會 over-permit(被濫用)或 over-restrict(不能 work)
+→ AIP 就在這個 gap:用 ERC-7579 hook 做 intent-level pre/postCheck,把「用戶意圖 → agent plan → 鏈上執行」串成可驗證 chain
+2. Privacy / Security / Sovereignty
+為什麼不是純 AI 問題:
+
+AI privacy 工具(differential privacy、federated learning、PII redaction)解的是「訓練數據洩漏 / 推論時 user data 不被收集」
+但 agent 在鏈上行動時,intent 本身在 mempool 是公開的,跟 agent 是不是用 DP 訓的無關
+AI alignment 不能讓 mempool watcher 看不到你的 swap intent
+→ AI privacy 完全不處理執行可見性這層
+為什麼不是純 Web3 問題:
+
+既有 chain privacy 工具(Tornado Cash、Privacy Pools、Aztec)的設計 user 是人類:假設 user 自己決定何時 deposit / withdraw,可以承擔幾分鐘到幾小時的延遲
+Agent 是高頻、自主、連續 small intent 的執行者 → 純 chain privacy 的 latency / batching model 不適用
+純 Web3 視角也沒考慮 agent 的行為連續性 fingerprint —— 就算單筆 tx 匿名,長期 pattern(下單時段、target contract 分佈、size distribution)還是洩漏 agent 身份
+→ 純 Web3 解法在 agent 場景產生 mismatch
+四、Week 2 主線
+選 「Wallet × Privacy」交集 —— Privacy-aware AIP module 設計(地圖中綠色虛線方向)。
+
+理由:
+
+延續今天 NeoCypherPunk 演講萃出來的 conviction —— integrity-only 是漏的,AIP 必須加 privacy 層
+接得住現有 AIP 工作的肌肉 —— 基礎是 ERC-7579 hook + EIP-1153 TSTORE 的 atomic intra-tx 模型,不從零開始
+是兩個我有實際 grip 的領域交集 —— 不橫向跳到陌生戰場
