@@ -1,0 +1,112 @@
+---
+date: 2026-05-28
+event: Week 2 Module B — Agent payment / commerce flow 設計
+---
+
+# 場景:DEX execution agent — 代用戶找最佳 swap route + 執行,收 success fee
+
+## 為什麼選這個場景
+
+- 同時跨「user 委派 + agent 自主執行 + 鏈上結算」三個層,七段流程能自然落地,不用硬湊
+- 「以 savings 為基礎收費」是真實 marketplace 模型(已存在於 1inch、Matcha 等 aggregator,但都還沒上 agent-autonomous 版本)
+- 跟我自己的 Week 2 主線(Wallet × Privacy)相干 —— 同樣的 ERC-7579 hook 架構可重用
+
+具體例子:
+- User:swap 1000 USDC → ETH,滑點 ≤ 0.5%,有效期 5 分鐘
+- Agent:監控 Uniswap V3 / Curve / Balancer / Sushi 等 venue,組裝最佳 route(含 multi-hop)
+- 成功且實際 output 高於 baseline → agent 抽 20% of (actual − baseline) 當 success fee
+
+## 五個角色 + 動作
+
+| 角色 | 動作 |
+|---|---|
+| **User** | 下單(發 intent + 預算授權 + 約束)|
+| **Agent**(off-chain) | 報價 + 找 route + 組 calldata + 提交 tx(可選 private RPC)|
+| **Smart account**(user 的 ERC-7579 wallet) | 校驗 intent ↔ tx 一致 + 執行 swap + atomic 結 fee |
+| **AIP hook**(pre/postCheck on smart account) | 驗收:intent 沒被中途竄改、output 在容忍範圍內 |
+| **TWAP Oracle**(Chainlink / Uniswap V3 TWAP) | 仲裁來源 —— 爭議 baseline 公允性時提供 reference |
+
+## 七段最小流程
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant A as Agent
+    participant W as Smart Account
+    participant AIP as AIP Hook
+    participant D as DEX
+    participant O as TWAP Oracle
+
+    Note over U,A: 1. 報價 (off-chain)
+    U->>A: swap 1000 USDC→ETH, slip ≤ 0.5%
+    A->>U: 預估 0.31 ETH; baseline = Uniswap V3 single-hop 0.305; fee = 20% of savings
+
+    Note over U,W: 2. 預算授權 (簽一次涵蓋全部約束)
+    U->>W: sign EIP-712 intent {token, amount, slip, baseline, fee_cap, deadline}
+    U->>W: approve USDC (限額 = amount, 不 unlimited)
+
+    Note over A,W: 3. 執行
+    A->>W: submit tx (route + calldata + intentId)
+    Note right of A: 走 private RPC 避免 mempool 被 frontrun
+
+    Note over W,AIP: 4-5. 交付 + 驗收 (intra-tx atomic)
+    W->>AIP: preCheck (TSTORE intentId + baseline + minOut)
+    W->>D: execute swap (route)
+    D-->>W: actual output X ETH
+    W->>AIP: postCheck (X ≥ minOut? route 沒漂? slippage 內?)
+    AIP-->>W: pass ✓ 或 revert ✗
+
+    Note over W,A: 6. 付款 / 退款 (atomic)
+    alt pass
+        W->>A: transfer fee = 20% × (X − baseline)
+        W->>U: transfer (X − fee)
+    else revert
+        Note over W: TSTORE 清除, USDC 回 user, 不扣 fee
+    end
+
+    Note over W: 7. 記錄
+    W-->>W: emit IntentExecuted(intentId, X, baseline, fee)
+
+    Note over U,O: 爭議分支 (off-tx, 後驗)
+    U-->>O: 質疑 baseline 不公允
+    O-->>U: 提供 5min TWAP 作獨立 reference
+    Note over U: 若 TWAP > agent's baseline + 容忍 → 走 dispute claim
+七段對應 primitive 與選型理由
+段	Primitive	為什麼這樣選
+報價	Off-chain JSON quote(可走 x402 標準化)	純資訊交換,上鏈浪費 gas
+預算授權	EIP-712 typed signature + 限額 ERC-20 approve	一次簽涵蓋 token / amount / slip / baseline / fee cap / deadline 全部約束
+執行	Private RPC(Flashbots Protect 系)	mempool 暴露 intent 會被 frontrun,但這層不破 AIP atomic
+交付	DEX swap on-chain	真實狀態變化
+驗收	AIP postCheck hook(ERC-7579 + EIP-1153 TSTORE)	intent ↔ execution 自動驗,失敗直接 revert,沒有 race condition 漏洞
+付款	Smart account 在同 tx 內 atomic 結算	user 跟 agent 同 tx 結清,不存在「執行完但沒付」的狀態
+退款	Hook revert 自動回滾	失敗等於 tx 沒發生過,USDC 不動,fee 不收
+爭議	TWAP oracle + on-chain dispute claim	baseline 公允性可被獨立第三方驗證,不靠 agent 自己宣稱
+記錄	Event log + intentId hash	永久可 index 可查證
+仲裁設計(三層)
+第一層 — 內建驗收(自動,即時)
+AIP postCheck:slippage / route / output 偏離 → tx revert,本金回 user,fee 不收。99% 一般失敗在這層收掉。
+
+第二層 — Baseline 爭議(人工觸發,後驗)
+User 認為 agent 報的 baseline 不公允(挑了較高 baseline 來放大 savings、收高 fee) → 提交 dispute claim,合約查 TWAP oracle 在 tx 那個 block 的 reference price。若偏差超過容忍 → 強制退 fee。
+
+第三層 — Reputation / staking(系統演化方向)
+Agent 質押 token 才能接單,反覆爭議敗訴 → slash + reputation 扣;長期沒爭議 → reputation 累積、可接更高 value 訂單。第三層 Week 2 範圍外,僅 framing。
+
+比較 x402 vs ERC-8004
+選這兩個比 —— 兩者都在 agent payment 語境裡常被提到,但解的層完全不同,合在一起才補完。(MPP / ERC-8183 我熟悉度不夠,沒拿來硬比。)
+
+維度	x402	ERC-8004
+解什麼問題	怎麼付(payment 協議層)	誰能信(identity / trust 層)
+觸發層	HTTP application layer	EVM 智能合約
+載體	HTTP 402 Payment Required + stablecoin tx	On-chain attestation / agent registry
+典型 flow	API call → server 回 402 + payment instructions → wallet 簽 stablecoin tx → retry call → 200	Agent 查 registry → 驗證對手 agent 是否符合某 capability claim
+狀態存哪	Off-chain HTTP context + on-chain payment tx	完全 on-chain
+解上面流程哪段	報價 / 付款 兩段 —— 標準化 user→agent fee 的協議	驗收 / 爭議中「對手是不是合法 agent」這個前置
+不解什麼	不處理「這個 agent 真的有做事嗎」(execution integrity)	不處理「付了多少 / 怎麼結算」
+Combined view:
+
+完整上面流程要全跑 → 至少要 x402 處理 user-to-agent fee 協議 + ERC-8004 處理 agent identity 可驗證身份,少一個就斷在某段:
+
+缺 x402 → 每個 agent 自己 ad-hoc 對接報價跟付款,沒互通標準 → 市場 fragmented
+缺 ERC-8004 → User 不知接觸的 agent 是真實註冊 entity 還是匿名腳本,沒法做 reputation / slashing 第三層仲裁
+但兩個都不解的:execution integrity(intent 跟實際執行有沒有對上) —— 那是 AIP 在補的層。所以實務上是 x402(付)+ ERC-8004(身份)+ AIP(執行驗證)三件套,缺一不可。
